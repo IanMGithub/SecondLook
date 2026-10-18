@@ -7,10 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test src/lib/contract.test.ts src/app/api/analyze/route.test.ts"
+    "test": "tsx --test src/lib/contract.test.ts src/lib/assessment-labels.test.ts src/lib/concern-rubric.test.ts src/lib/rules-analyzer.test.ts src/lib/analyze-request.test.ts src/lib/workspace.test.ts src/lib/report.test.tsx src/lib/evaluation-cases.test.tsx src/lib/learn-content.test.ts src/lib/resources-content.test.ts src/server/analyze-message.test.ts src/server/openai-analyzer.test.ts src/app/api/analyze/route.test.ts src/app/learn/page.test.tsx src/app/resources/page.test.tsx src/components/analysis-result.test.tsx src/components/message-review.test.tsx src/components/site-nav.test.tsx",
+    "smoke:analyze": "tsx scripts/smoke-analyze.ts",
+    "evaluate:live": "tsx scripts/evaluate-live.ts"
   },
   "dependencies": {
     "next": "16.4.2",
+    "openai": "^7.36.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "^4.6.7"

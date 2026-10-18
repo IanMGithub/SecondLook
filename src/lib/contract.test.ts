@@ -4,9 +4,11 @@ import {
   analysisSchema,
   analyzeErrorSchema,
   analyzeSuccessSchema,
+  defaultMessageContext,
   indicatorSchema,
   parseAnalyzeRequest,
 } from "./contract";
+import { finalizeAnalysis } from "./concern-rubric";
 import { exampleFixtures } from "./fixtures";
 
 const secret = "submitted-secret-phrase";
@@ -16,13 +18,55 @@ describe("parseAnalyzeRequest", () => {
     assert.deepEqual(parseAnalyzeRequest({ message: "Hello from a friend." }), {
       ok: true,
       message: "Hello from a friend.",
+      context: defaultMessageContext,
     });
+  });
+
+  it("accepts context choices and fills an omitted choice", () => {
+    assert.deepEqual(
+      parseAnalyzeRequest({
+        message: "Hello",
+        context: { apparentSender: "friend_or_family", expected: "yes" },
+      }),
+      {
+        ok: true,
+        message: "Hello",
+        context: { apparentSender: "friend_or_family", expected: "yes" },
+      },
+    );
+    assert.deepEqual(
+      parseAnalyzeRequest({
+        message: "Hello",
+        context: { apparentSender: "work_or_school" },
+      }),
+      {
+        ok: true,
+        message: "Hello",
+        context: { apparentSender: "work_or_school", expected: "not_sure" },
+      },
+    );
+  });
+
+  it("rejects free-text context and extra context fields without echoing them", () => {
+    for (const context of [
+      { apparentSender: secret },
+      { apparentSender: "friend_or_family", name: secret },
+      "friend",
+      null,
+    ]) {
+      const parsed = parseAnalyzeRequest({ message: "Hello", context });
+      assert.equal(parsed.ok, false);
+      if (!parsed.ok) {
+        assert.equal(parsed.code, "INVALID_REQUEST");
+        assert.equal(JSON.stringify(parsed).includes(secret), false);
+      }
+    }
   });
 
   it("preserves leading and trailing whitespace", () => {
     const message = "  hello  ";
     const parsed = parseAnalyzeRequest({ message });
-    assert.deepEqual(parsed, { ok: true, message });
+    assert.deepEqual(parsed, { ok: true, message, context: defaultMessageContext });
   });
 
   it("rejects an empty message without echoing it", () => {
@@ -89,7 +133,7 @@ describe("parseAnalyzeRequest", () => {
   it("accepts exactly 5,000 string units", () => {
     const message = "a".repeat(5000);
     const parsed = parseAnalyzeRequest({ message });
-    assert.deepEqual(parsed, { ok: true, message });
+    assert.deepEqual(parsed, { ok: true, message, context: defaultMessageContext });
     assert.equal(message.length, 5000);
   });
 
@@ -114,10 +158,10 @@ describe("analysis schema", () => {
   });
 
   it("accepts an empty indicators array", () => {
-    const analysis = {
-      assessment: "unclear" as const,
+    const analysis = finalizeAnalysis({
       summary: "No warning signs are illustrated.",
       indicators: [],
+      concernTypes: [],
       safeActions: [
         {
           title: "Check your own records",
@@ -125,8 +169,81 @@ describe("analysis schema", () => {
         },
       ],
       limitations: "Text alone cannot show who sent this.",
-    };
+    });
+    assert.equal(analysis.concernIndex, null);
+    assert.equal(analysis.assessment, "unclear");
+    assert.equal(analysis.evidenceStrength, "insufficient");
     assert.deepEqual(analysisSchema.parse(analysis), analysis);
+
+    const benign = finalizeAnalysis({
+      summary: "No specific warning signs identified in this message.",
+      indicators: [],
+      concernTypes: [],
+      safeActions: [],
+      limitations: "This does not verify the sender.",
+      unscoredReading: "no_specific_concern",
+    });
+    assert.equal(benign.assessment, "no_specific_concern");
+    assert.equal(benign.concernIndex, null);
+    assert.equal(
+      analysisSchema.safeParse({ ...benign, assessment: "safe" }).success,
+      false,
+    );
+    assert.equal(
+      analysisSchema.safeParse({
+        ...benign,
+        indicators: [
+          {
+            id: "i1",
+            category: "other",
+            evidence: "hello",
+            explanation: "Not a warning.",
+            confidence: "low",
+            severity: "low",
+            support: "contextual",
+          },
+        ],
+      }).success,
+      false,
+    );
+    assert.equal(
+      analysisSchema.safeParse({
+        ...exampleFixtures[0].analysis,
+        assessment: "no_specific_concern",
+      }).success,
+      false,
+    );
+  });
+
+  it("rejects a zero index, a safe label, and a label that disagrees with the index", () => {
+    const valid = exampleFixtures[0].analysis;
+    assert.equal(analysisSchema.safeParse({ ...valid, concernIndex: 0 }).success, false);
+    assert.equal(analysisSchema.safeParse({ ...valid, assessment: "safe" }).success, false);
+    assert.equal(
+      analysisSchema.safeParse({
+        ...valid,
+        concernIndex: 30,
+        assessment: "high_concern",
+      }).success,
+      false,
+    );
+    assert.equal(
+      analysisSchema.safeParse({
+        ...valid,
+        concernIndex: null,
+        assessment: "some_concern",
+        concernTypes: [],
+        evidenceStrength: "insufficient",
+      }).success,
+      false,
+    );
+    assert.equal(
+      analysisSchema.safeParse({
+        ...valid,
+        evidenceStrength: "insufficient",
+      }).success,
+      false,
+    );
   });
 
   it("rejects unknown assessment, category, and confidence values", () => {
@@ -184,6 +301,7 @@ describe("response envelopes", () => {
     const success = analyzeSuccessSchema.parse({
       ok: true,
       mode: "rules",
+      context: defaultMessageContext,
       analysis: exampleFixtures[2].analysis,
     });
     assert.equal(success.mode, "rules");
@@ -191,6 +309,37 @@ describe("response envelopes", () => {
       analyzeSuccessSchema.safeParse({
         ok: true,
         mode: "mock",
+        context: defaultMessageContext,
+        analysis: exampleFixtures[2].analysis,
+      }).success,
+      false,
+    );
+    assert.equal(success.fallbackReason, undefined);
+
+    for (const fallbackReason of [
+      "not_configured",
+      "timeout",
+      "rate_limited",
+      "provider_error",
+      "invalid_output",
+    ]) {
+      assert.equal(
+        analyzeSuccessSchema.safeParse({
+          ok: true,
+          mode: "rules",
+          fallbackReason,
+          context: defaultMessageContext,
+          analysis: exampleFixtures[2].analysis,
+        }).success,
+        true,
+      );
+    }
+    assert.equal(
+      analyzeSuccessSchema.safeParse({
+        ok: true,
+        mode: "rules",
+        fallbackReason: "mystery",
+        context: defaultMessageContext,
         analysis: exampleFixtures[2].analysis,
       }).success,
       false,
