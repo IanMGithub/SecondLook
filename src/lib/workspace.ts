@@ -61,6 +61,20 @@ export function applyExample(message: string): Workspace {
   return showInput(message, { ...defaultMessageContext });
 }
 
+/** Demo practice flow: show a prewritten assessment immediately (no loading, no network). */
+export function showDemoFixtureResult(input: {
+  message: string;
+  context: MessageContext;
+  result: AnalyzeSuccess;
+}): Extract<Workspace, { phase: "result" }> {
+  return {
+    phase: "result",
+    message: input.message,
+    context: input.context,
+    result: input.result,
+  };
+}
+
 export function beginAnalysis(
   message: string,
   context: MessageContext,

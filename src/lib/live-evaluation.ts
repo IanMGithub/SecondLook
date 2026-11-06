@@ -16,7 +16,7 @@ export type LiveCaseRecord = {
   id: string;
   classification: "ai" | "rules-fallback" | "ai-with-fallback-reason" | "rejected" | "request-failed";
   httpStatus: number;
-  mode?: "ai" | "rules";
+  mode?: "ai" | "rules" | "demo";
   fallbackReason?:
     | "not_configured"
     | "timeout"

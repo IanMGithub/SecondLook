@@ -9,7 +9,13 @@ import {
   type AnalysisRequestOutcome,
 } from "@/lib/analyze-request";
 import { defaultMessageContext, MESSAGE_LIMIT, type MessageContext } from "@/lib/contract";
+import type { DeploymentMode } from "@/lib/deployment-mode";
 import { examplePrompts } from "@/lib/examples";
+import {
+  demoAnalyzeSuccess,
+  exampleFixtures,
+  getExampleFixture,
+} from "@/lib/fixtures";
 import {
   isApparentSender,
   isMessageExpectation,
@@ -21,6 +27,7 @@ import {
   editMessage,
   finishAnalysis,
   idleWorkspace,
+  showDemoFixtureResult,
   showInput,
   updateContext,
   updateMessage,
@@ -29,7 +36,163 @@ import {
 
 type FocusIntent = "result" | "loading" | "input" | null;
 
-export function MessageReview() {
+export function MessageReview({
+  deploymentMode = "demo",
+}: {
+  deploymentMode?: DeploymentMode;
+}) {
+  if (deploymentMode === "demo") {
+    return <DemoMessageReview />;
+  }
+  return <LiveMessageReview />;
+}
+
+function DemoMessageReview() {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState<Workspace>(idleWorkspace);
+  const focusIntent = useRef<FocusIntent>(null);
+  const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (focusIntent.current === "result" && workspace.phase === "result") {
+      resultsHeadingRef.current?.focus({ preventScroll: true });
+      focusIntent.current = null;
+    }
+  }, [workspace]);
+
+  function analyzeSelectedExample() {
+    if (!selectedId) return;
+    const fixture = getExampleFixture(selectedId);
+    if (!fixture) return;
+    focusIntent.current = "result";
+    setWorkspace(
+      showDemoFixtureResult({
+        message: fixture.message,
+        context: fixture.context,
+        result: demoAnalyzeSuccess(fixture),
+      }),
+    );
+  }
+
+  function chooseAnother() {
+    focusIntent.current = null;
+    setSelectedId(null);
+    setWorkspace(idleWorkspace());
+  }
+
+  if (workspace.phase === "result") {
+    return (
+      <section className="min-w-0 rounded-3xl border border-stone-200 bg-white p-5 sm:p-7">
+        <p role="status" className="sr-only">
+          Prewritten demo assessment ready.
+        </p>
+        <h2
+          id="analysis-result-heading"
+          ref={resultsHeadingRef}
+          tabIndex={-1}
+          className="text-2xl font-semibold tracking-tight text-stone-950 focus:outline-2 focus:outline-offset-[3px] focus:outline-accent"
+        >
+          Practice assessment
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-stone-600">
+          This assessment is a fixed example for the practice message you
+          selected. It is not a newly generated analysis of your own message.
+        </p>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          <button
+            type="button"
+            onClick={chooseAnother}
+            className="rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-800"
+          >
+            Choose another example
+          </button>
+          <ReportDialog message={workspace.message} result={workspace.result} />
+        </div>
+        <div className="mt-8">
+          <AnalysisResult message={workspace.message} result={workspace.result} />
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <p id="demo-memory" className="text-sm leading-6 text-stone-600">
+        Opening Learn or Resources leaves this page and discards the selected
+        example and any practice assessment held in memory. They are not saved.
+      </p>
+      <section
+        aria-labelledby="practice-heading"
+        className="space-y-5 rounded-3xl border border-stone-200 bg-white p-5 sm:p-7"
+      >
+        <div className="space-y-2">
+          <h2 id="practice-heading" className="text-lg font-semibold text-stone-950">
+            Practice messages
+          </h2>
+          <p id="practice-note" className="text-sm leading-6 text-stone-600">
+            All messages are fictional. Select one, then choose Analyze example
+            to see its prewritten assessment. This demo cannot analyze text you
+            type or upload, and it does not call an AI service.
+          </p>
+        </div>
+        <fieldset className="space-y-3" aria-describedby="practice-note">
+          <legend className="sr-only">Choose a practice message</legend>
+          {exampleFixtures.map((fixture) => {
+            const selected = selectedId === fixture.id;
+            return (
+              <label
+                key={fixture.id}
+                className={`block cursor-pointer rounded-2xl border px-4 py-3 ${
+                  selected
+                    ? "border-accent bg-accent/5"
+                    : "border-stone-200 bg-white"
+                }`}
+              >
+                <span className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    name="practice-example"
+                    value={fixture.id}
+                    checked={selected}
+                    onChange={() => setSelectedId(fixture.id)}
+                    className="mt-1"
+                  />
+                  <span className="min-w-0 space-y-1">
+                    <span className="block text-sm font-semibold text-stone-950">
+                      {fixture.title}
+                    </span>
+                    <span className="block text-sm leading-6 text-stone-600">
+                      {fixture.practiceNote}
+                    </span>
+                    <span className="block text-sm leading-6 text-stone-800 [overflow-wrap:anywhere]">
+                      {fixture.message}
+                    </span>
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </fieldset>
+        <button
+          type="button"
+          disabled={selectedId === null || !getExampleFixture(selectedId)}
+          onClick={analyzeSelectedExample}
+          className="rounded-full bg-accent px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Analyze example
+        </button>
+      </section>
+      {selectedId === null ? (
+        <p role="status" className="text-base leading-7 text-stone-600">
+          No practice assessment yet. Select a message, then choose Analyze
+          example.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function LiveMessageReview() {
   const [workspace, setWorkspace] = useState<Workspace>(idleWorkspace);
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -417,11 +580,11 @@ export function WorkspaceView({
             Fictional examples
           </h2>
           <p id="examples-note" className="text-sm leading-6 text-stone-600">
-            All three messages are fictional. Choosing one fills the box, resets
-            both context choices to Not sure, and does not analyze it.
+            All messages are fictional. Choosing one fills the box, resets both
+            context choices to Not sure, and does not analyze it.
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {examplePrompts.map((example) => (
             <button
               key={example.id}

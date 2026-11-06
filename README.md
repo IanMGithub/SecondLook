@@ -35,9 +35,29 @@ Copy the placeholder file and edit the copy:
 cp .env.example .env.local
 ```
 
-`.env.example` contains only empty names:
+### Public demo deployment (default)
+
+`SECONDLOOK_DEPLOYMENT_MODE` controls whether the app is a public interactive demo or a live local analyzer. **Missing or invalid values default to `demo`.** Demo mode is intended for hosted demos:
+
+- The home page offers practice messages and prewritten assessments only.
+- `POST /api/analyze` returns HTTP 403 `DEMO_ONLY` before any OpenAI client is constructed.
+- Request bodies, headers, cookies, and query strings cannot re-enable live analysis.
+- **Do not set `OPENAI_API_KEY` (or any other provider key) on the demo host.**
+
+Minimal demo environment (no OpenAI credentials):
 
 ```bash
+SECONDLOOK_DEPLOYMENT_MODE=demo
+```
+
+Leaving `SECONDLOOK_DEPLOYMENT_MODE` unset is equivalent.
+
+### Live local development
+
+Live analysis is opt-in for local work only:
+
+```bash
+SECONDLOOK_DEPLOYMENT_MODE=live
 OPENAI_API_KEY=
 OPENAI_MODEL=
 # Optional. Server-side OpenAI request deadline in milliseconds (5_000–60_000). Default 30000.
@@ -71,7 +91,9 @@ The adapter uses the installed `openai` package (7.36.0) method `responses.parse
 
 ## Using the page
 
-Paste a message or choose one of three fictional examples, then select Analyze message. Choosing an example fills the box and resets the context choices. It does not analyze the message. The page sends `POST /api/analyze` with that exact text and the selected context.
+**Demo mode (default):** Choose a fictional practice message, then select Analyze example. The matching prewritten assessment appears immediately. There is no freeform message box, no upload path, no artificial AI delay, and no call to an AI service. The result is labeled a prewritten demo assessment.
+
+**Live mode (`SECONDLOOK_DEPLOYMENT_MODE=live`):** Paste a message or choose a fictional example, then select Analyze message. Choosing an example fills the box and resets the context choices. It does not analyze the message. The page sends `POST /api/analyze` with that exact text and the selected context.
 
 Two optional choices sit next to the message: who it appears to be from, and whether you were expecting it. The choices are Not sure, Friend or family, Work or school contact, Business or organization, or Unknown sender, and Not sure, Yes, or No. The form says context helps interpret the message, but does not verify the sender. It does not ask for a name, phone number, or account number. Choosing a fictional example resets both choices to Not sure. Context stays in page memory only.
 
@@ -147,7 +169,9 @@ Success body:
 }
 ```
 
-`mode` is `"ai"` or `"rules"`. `fallbackReason` is optional. This app adds it only for rules results:
+In demo deployments, `POST /api/analyze` returns HTTP 403 with `error.code` `DEMO_ONLY` and does not run rules or AI analysis.
+
+In live mode, `mode` is `"ai"` or `"rules"`. The UI can also show `mode` `"demo"` for prewritten practice assessments (client-side fixtures; not returned by the live analyze endpoint). `fallbackReason` is optional. This app adds it only for rules results:
 
 | Reason | When |
 | --- | --- |
@@ -256,9 +280,32 @@ That writes `evaluation-reports/context-*.json`. A rules row in that file does n
 
 `npm test` checks the rules, the request shape, mocked provider failures, evidence checks, the route’s validation, the page’s request helper with a fake `fetch`, and the evaluation cases against the current rules. It also renders the result markup to confirm HTML-like text stays text and that an empty indicator list is a result rather than an error. It does not call OpenAI, spend money, or prove that the live page’s keyboard and layout behavior works. It does not establish how often the rules or a live model recognize suspicious messages.
 
+## Deploying the public demo
+
+This is a Next.js App Router app. A typical host is Vercel (or any Node host that runs `next start` after `next build`).
+
+1. Build with demo mode (default). Do **not** add OpenAI credentials to the host.
+2. Set only:
+
+```bash
+SECONDLOOK_DEPLOYMENT_MODE=demo
+```
+
+3. Deploy with `npm run build` and `npm start`, or your host’s Next.js preset.
+4. After deploy, confirm:
+   - Home page shows the interactive-demo banner and practice picker.
+   - Analyze example shows a prewritten assessment labeled as a demo assessment.
+   - Learn and Resources still load.
+   - `POST /api/analyze` with any JSON body returns 403 `DEMO_ONLY`.
+   - Hosting env has no `OPENAI_API_KEY` / `OPENAI_MODEL`.
+
+Live OpenAI analysis remains in the repo for local use (`SECONDLOOK_DEPLOYMENT_MODE=live` plus keys in `.env.local`). It is not part of the public demo path.
+
 ## Privacy
 
-Submitting Analyze message sends the message to this app’s server. The server does not intentionally save or log it. In AI mode, the message content is sent to OpenAI. Rules mode does not send it to OpenAI. Changing or clearing the text in the browser does not erase a request that has already reached the model.
+**Demo mode** does not submit practice messages to a provider. Assessments are static fixtures in the app.
+
+**Live mode:** Submitting Analyze message sends the message to this app’s server. The server does not intentionally save or log it. In AI mode, the message content is sent to OpenAI. Rules mode does not send it to OpenAI. Changing or clearing the text in the browser does not erase a request that has already reached the model.
 
 `store: false` tells the Responses API not to keep the response for later retrieval. The create API defaults `store` to true, and a true value stores response data for at least 30 days. OpenAI’s data-controls page also says abuse-monitoring logs can be retained for up to 30 days unless the organization has an approved retention control such as Zero Data Retention. `store: false` is not a promise that the provider keeps nothing.
 
@@ -278,15 +325,17 @@ Submitting Analyze message sends the message to this app’s server. The server 
 | `tsconfig.json` | TypeScript settings. `@/*` imports map to the `src` directory. |
 | `eslint.config.mjs` | ESLint configuration from the Next.js starter. |
 | `src/app/layout.tsx` | Root page shell, title, and description. |
-| `src/app/page.tsx` | Homepage header and introduction. |
+| `src/app/page.tsx` | Homepage header, demo banner, and deployment-mode wiring. |
 | `src/app/globals.css` | Tailwind import, light theme colors, system font, and focus outline. |
-| `src/components/message-review.tsx` | Message box, example buttons, and live submission state. |
+| `src/components/message-review.tsx` | Demo practice picker or live message box and submission state. |
 | `src/components/analysis-result.tsx` | Assessment, highlights, evidence, next steps, and limitations. |
 | `src/lib/analyze-request.ts` | Browser request, response checks, and stale-result handling. |
-| `src/lib/examples.ts` | Fictional example messages. The page does not ship their canned results. |
+| `src/lib/deployment-mode.ts` | Trusted demo/live switch. Defaults to demo. |
+| `src/lib/examples.ts` | Fictional practice message text. |
 | `src/lib/analysis.ts` | Enum values and the labels shown in a result. Result types come from the shared schema. |
 | `src/lib/contract.ts` | Zod schemas for a message, an analysis, and the API envelopes. |
-| `src/lib/fixtures.ts` | Fictional messages paired with canned results for schema tests. |
+| `src/lib/fixtures.ts` | Practice messages paired with prewritten analyses for the demo. |
+| `.env.example` | `SECONDLOOK_DEPLOYMENT_MODE` plus optional live OpenAI placeholders. |
 | `src/lib/evaluation-cases.ts` | Fictional review cases, rules limits, and the manual quality rubric. |
 | `src/lib/live-evaluation.ts` | Opt-in live-run plan and report records. No network calls. |
 | `src/lib/highlight-evidence.ts` | Finds literal excerpts to highlight in a result. |
@@ -307,6 +356,6 @@ Submitting Analyze message sends the message to this app’s server. The server 
 | `scripts/smoke-analyze.ts` | Opt-in local smoke test. Not run by `npm test`. |
 | `scripts/evaluate-live.ts` | Opt-in sequential evaluation. Not run by `npm test`. |
 | `src/app/favicon.ico` | Browser tab icon from the starter. |
-| `.env.example` | Empty `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_MS`, and `OPENAI_ANALYZE_DIAGNOSTICS` placeholders. |
+| `.env.example` | `SECONDLOOK_DEPLOYMENT_MODE` plus optional live OpenAI placeholders. |
 | `.gitignore` | Skips dependencies, build output, real environment files, and `evaluation-reports/`. `.env.example` is the exception. |
 | `AGENTS.md` | Notes generated by Next.js for coding agents. |

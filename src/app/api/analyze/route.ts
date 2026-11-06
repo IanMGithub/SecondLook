@@ -4,6 +4,11 @@ import {
   type AnalyzeError,
 } from "../../../lib/contract";
 import {
+  DEMO_ANALYZE_UNAVAILABLE,
+  resolveDeploymentMode,
+  type DeploymentMode,
+} from "../../../lib/deployment-mode";
+import {
   analyzeMessage,
   type AnalyzeOptions,
 } from "../../../server/analyze-message";
@@ -33,7 +38,7 @@ function errorResponse(
   });
 }
 
-type AnalyzeErrorStatus = 400 | 413 | 415;
+type AnalyzeErrorStatus = 400 | 403 | 413 | 415;
 
 function nonBlankEnv(value: string | undefined): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -41,14 +46,35 @@ function nonBlankEnv(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+export type HandleAnalyzeOptions = AnalyzeOptions & {
+  /**
+   * Trusted deployment mode for this request. POST always sets this from
+   * SECONDLOOK_DEPLOYMENT_MODE. Client bodies, headers, and cookies are ignored.
+   * When omitted (unit tests), defaults to live so injected-provider tests keep working.
+   */
+  deploymentMode?: DeploymentMode;
+};
+
 /**
  * Validates a message, then returns rules or model analysis.
  * The 5,000-character check is an application limit. It is not a transport
  * body-size limit, and this route is not production-hardened.
  * Configuration is read only here. Tests pass options and do not use the environment.
+ *
+ * Demo deployments refuse analysis before any provider call. Request parameters
+ * cannot re-enable live analysis.
  */
 export async function POST(request: Request): Promise<Response> {
+  const deploymentMode = resolveDeploymentMode(
+    process.env.SECONDLOOK_DEPLOYMENT_MODE,
+  );
+  if (deploymentMode === "demo") {
+    // Do not read API keys or invoke analyzeMessage in demo mode.
+    return handleAnalyzeRequest(request, { deploymentMode: "demo" });
+  }
+
   return handleAnalyzeRequest(request, {
+    deploymentMode: "live",
     apiKey: nonBlankEnv(process.env.OPENAI_API_KEY),
     model: nonBlankEnv(process.env.OPENAI_MODEL),
     timeoutMs: resolveOpenAITimeoutMs(process.env.OPENAI_TIMEOUT_MS),
@@ -58,8 +84,13 @@ export async function POST(request: Request): Promise<Response> {
 
 export async function handleAnalyzeRequest(
   request: Request,
-  options: AnalyzeOptions = {},
+  options: HandleAnalyzeOptions = {},
 ): Promise<Response> {
+  const deploymentMode = options.deploymentMode ?? "live";
+  if (deploymentMode === "demo") {
+    return errorResponse(403, "DEMO_ONLY", DEMO_ANALYZE_UNAVAILABLE);
+  }
+
   if (!allowsJson(request.headers.get("content-type"))) {
     return errorResponse(
       415,

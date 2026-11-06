@@ -133,7 +133,7 @@ export const analysisSchema = z
     }
   });
 
-export const analysisModeSchema = z.enum(["ai", "rules"]);
+export const analysisModeSchema = z.enum(["ai", "rules", "demo"]);
 
 /**
  * Optional success-only field. Rules results from this app include one of

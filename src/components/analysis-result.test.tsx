@@ -59,11 +59,17 @@ describe("AnalysisResult markup", () => {
       <AnalysisResult message={message} result={result("rules", [indicator])} />,
     );
 
+    const demo = renderToStaticMarkup(
+      <AnalysisResult message={message} result={result("demo", [indicator])} />,
+    );
+
     assert.match(ai, /AI-assisted analysis/);
     assert.equal(ai.includes("Limited rules-based analysis"), false);
     assert.match(rules, /Limited rules-based analysis/);
     assert.match(rules, /AI analysis is not configured/);
     assert.match(rules, /comes from limited rules/);
+    assert.match(demo, /Prewritten demo assessment/);
+    assert.match(demo, /fixed practice assessment/);
     assert.equal(ai.includes("Mock analysis"), false);
     assert.equal(rules.includes("Mock analysis"), false);
     assert.match(ai, /High concern/);

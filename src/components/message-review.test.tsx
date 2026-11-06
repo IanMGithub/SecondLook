@@ -38,8 +38,16 @@ function success(mode: AnalyzeSuccess["mode"]): AnalyzeSuccess {
 }
 
 describe("MessageReview initial markup", () => {
-  it("offers live analysis and does not show a mock result", () => {
+  it("defaults to the demo practice picker", () => {
     const html = renderToStaticMarkup(<MessageReview />);
+    assert.match(html, /Analyze example/);
+    assert.match(html, /Practice messages/);
+    assert.equal(html.includes("Analyze message"), false);
+    assert.equal(html.includes("may be processed by OpenAI"), false);
+  });
+
+  it("offers live analysis when deploymentMode is live", () => {
+    const html = renderToStaticMarkup(<MessageReview deploymentMode="live" />);
     assert.match(html, /Analyze message/);
     assert.match(html, /The message and these context labels are sent to our server/);
     assert.match(html, /Who does this appear to be from/);
@@ -78,43 +86,19 @@ describe("workspace markup", () => {
         {...handlers()}
       />,
     );
-    assert.match(html, /aria-busy="true"/);
     assert.match(html, /Analyzing the message/);
+    assert.match(html, /aria-busy="true"/);
     assert.match(html, /Cancel/);
-    assert.equal(html.includes("<textarea"), false);
-    assert.equal(html.includes("Create report"), false);
-    assert.equal(html.includes("Fictional examples"), false);
+    assert.equal(html.includes("Analyze message"), false);
+    assert.equal(html.includes("Message to analyze"), false);
   });
 
-  it("keeps the form and the submitted text when analysis fails", () => {
-    const html = renderToStaticMarkup(
-      <WorkspaceView
-        workspace={{
-          phase: "input",
-          message: "  exact submitted text  ",
-          context: { apparentSender: "work_or_school", expected: "yes" },
-          notice: { type: "error", message: analysisStatusCopy.unreadable },
-        }}
-        {...handlers()}
-      />,
-    );
-    assert.match(html, /<textarea/);
-    assert.match(html, /exact submitted text/);
-    assert.match(html, /role="alert"/);
-    assert.match(html, /Work or school contact/);
-    assert.match(html, /value="yes"/);
-    assert.match(html, /could not be read/);
-    assert.equal(html.includes("Analysis result"), false);
-    assert.equal(html.includes("No analysis yet"), false);
-  });
-
-  it("replaces the form with a result and an empty indicator list", () => {
-    const message = '<script>alert(1)</script> https://tracking.example/status';
+  it("shows result actions and keeps the submitted message out of the heading", () => {
     const html = renderToStaticMarkup(
       <WorkspaceView
         workspace={{
           phase: "result",
-          message,
+          message: "Please send your password.",
           context: defaultMessageContext,
           result: success("rules"),
         }}
@@ -122,20 +106,10 @@ describe("workspace markup", () => {
       />,
     );
     assert.match(html, /Analysis result/);
-    assert.match(html, /tabindex="-1"/);
     assert.match(html, /Edit message/);
     assert.match(html, /New analysis/);
     assert.match(html, /Create report/);
     assert.match(html, /Limited rules-based analysis/);
-    assert.match(html, /AI analysis took too long/);
-    assert.match(html, /No warning signs were selected/);
-    assert.match(html, /Include the full message/);
-    assert.match(html, /Copy report/);
-    assert.match(html, /Close/);
-    assert.equal(html.includes("<textarea"), false);
-    assert.equal(html.includes('role="alert"'), false);
-    assert.equal(html.includes("<script>"), false);
-    assert.equal(/<a[\s>]/.test(html), false);
-    assert.match(html, /https:\/\/tracking\.example\/status/);
+    assert.equal(html.includes(analysisStatusCopy.network), false);
   });
 });

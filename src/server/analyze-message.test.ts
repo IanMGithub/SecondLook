@@ -345,4 +345,30 @@ describe("analyzeMessage", () => {
     assert.equal(keyOnly.mode, "rules");
     assert.equal(modelOnly.mode, "rules");
   });
+
+  it("does not construct a live provider when allowLiveProvider is false", async () => {
+    let called = 0;
+    const result = await analyzeMessage("Please send your password.", {
+      apiKey: "sk-should-not-be-used",
+      model: "gpt-5-mini",
+      allowLiveProvider: false,
+      provider: {
+        analyze: async () => {
+          called += 1;
+          return { ok: false, reason: "provider_error" };
+        },
+      },
+    });
+    // Injected provider still runs when passed explicitly; keys alone must not.
+    assert.equal(called, 1);
+    assert.equal(result.mode, "rules");
+
+    const blocked = await analyzeMessage("Please send your password.", {
+      apiKey: "sk-should-not-be-used",
+      model: "gpt-5-mini",
+      allowLiveProvider: false,
+    });
+    assert.equal(blocked.mode, "rules");
+    assert.equal(blocked.fallbackReason, "not_configured");
+  });
 });

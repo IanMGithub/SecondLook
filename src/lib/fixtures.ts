@@ -1,11 +1,20 @@
 import type { Analysis } from "@/lib/analysis";
 import { finalizeAnalysis } from "@/lib/concern-rubric";
+import {
+  analyzeSuccessSchema,
+  defaultMessageContext,
+  type AnalyzeSuccess,
+  type MessageContext,
+} from "@/lib/contract";
 import { examplePrompts } from "@/lib/examples";
 
 export type ExampleFixture = {
   id: string;
   title: string;
   message: string;
+  /** Short label for the practice picker. */
+  practiceNote: string;
+  context: MessageContext;
   analysis: Analysis;
 };
 
@@ -17,6 +26,8 @@ export const exampleFixtures = [
     id: examplePrompts[0].id,
     title: examplePrompts[0].title,
     message: examplePrompts[0].message,
+    practiceNote: "Obvious phishing: short deadline, identity step, and a link in the text.",
+    context: { ...defaultMessageContext },
     analysis: finalizeAnalysis({
       summary:
         "This message sets a 30-minute deadline and presses you to verify your identity through an address included in the text. That is enough to slow down. This preview cannot confirm that a bank sent it or that an account is restricted.",
@@ -75,42 +86,57 @@ export const exampleFixtures = [
     id: examplePrompts[1].id,
     title: examplePrompts[1].title,
     message: examplePrompts[1].message,
+    practiceNote: "Urgency plus claimed IT support and a login link in the message.",
+    context: { ...defaultMessageContext },
     analysis: finalizeAnalysis({
       summary:
-        "This message offers a check for more than the asking price and asks you to wire the extra money onward. That combination is a reason to pause. This preview has not inspected a check and cannot say whether one would be paid.",
+        "This message claims to be IT support, warns that email will stop soon, and points you to a sign-in address in the text. Treat that combination as a reason to pause. This assessment cannot verify that IT sent it or that storage is full.",
       indicators: [
         {
           id: "i1",
-          category: "payment",
-          evidence: "$500 more than your asking price",
+          category: "impersonation",
+          evidence: "This is IT Support",
           explanation:
-            "This describes an overpayment. The preview has not seen or inspected a check. The extra amount matters because it is the money you would be asked to pass on.",
-          confidence: "high",
-          severity: "high",
+            "The text claims an IT role. The words alone do not prove the sender works for your organization.",
+          confidence: "medium",
+          severity: "moderate",
           support: "direct",
         },
         {
           id: "i2",
-          category: "payment",
-          evidence: "wire the extra money",
+          category: "urgency",
+          evidence: "within one hour",
           explanation:
-            "This asks you to wire the extra amount to someone else after a deposit. A wire is difficult to undo. The request itself is the warning sign. It does not prove that a mover or a check is real.",
+            "A short deadline pushes a quick sign-in. You can still check mailbox status through a channel you already use.",
           confidence: "high",
-          severity: "high",
-          support: "direct",
+          severity: "moderate",
+          support: "contextual",
+        },
+        {
+          id: "i3",
+          category: "suspicious_link",
+          evidence: "https://mail-reset.example",
+          explanation:
+            "The sign-in address is printed in the message. This assessment has not opened it. Prefer a bookmark or app you already trust.",
+          confidence: "medium",
+          severity: "low",
+          support: "contextual",
         },
       ],
-      concernTypes: [{ type: "scam_fraud", indicatorIds: ["i1", "i2"] }],
+      concernTypes: [
+        { type: "impersonation", indicatorIds: ["i1"] },
+        { type: "scam_fraud", indicatorIds: ["i2", "i3"] },
+      ],
       safeActions: [
         {
-          title: "Do not send the extra payment",
+          title: "Use your usual IT or email channel",
           explanation:
-            "You can refuse to wire money beyond the agreed price, including an amount described as extra for a mover.",
+            "Open the email app or IT help page you already use, or call a number from your organization’s directory. Do not use the address in this message.",
         },
         {
-          title: "Ask your own bank about a deposited check",
+          title: "Do not sign in from this message",
           explanation:
-            "If a check is already deposited, contact your bank through an app or number you already trust and ask whether the funds are actually available. Do not follow payment instructions from this message while you wait.",
+            "You can check storage or account status without following a link that arrived in an unexpected warning.",
         },
       ],
       limitations: sharedLimitations,
@@ -120,6 +146,8 @@ export const exampleFixtures = [
     id: examplePrompts[2].id,
     title: examplePrompts[2].title,
     message: examplePrompts[2].message,
+    practiceNote: "A routine reminder that can look cautious at first glance.",
+    context: { ...defaultMessageContext },
     analysis: finalizeAnalysis({
       summary:
         "No specific warning signs identified in this message. That does not authenticate the sender or guarantee the message is safe.",
@@ -136,4 +164,58 @@ export const exampleFixtures = [
       limitations: sharedLimitations,
     }),
   },
+  {
+    id: examplePrompts[3].id,
+    title: examplePrompts[3].title,
+    message: examplePrompts[3].message,
+    practiceNote: "Ambiguous without context: a password request that may or may not be expected.",
+    context: {
+      apparentSender: "not_sure",
+      expected: "not_sure",
+    },
+    analysis: finalizeAnalysis({
+      summary:
+        "The text asks for a wifi password and mentions being downstairs. Without confirmed context about who sent it, that request is worth treating carefully. This assessment cannot verify the sender or the door-code claim.",
+      indicators: [
+        {
+          id: "i1",
+          category: "sensitive_information",
+          evidence: "apartment wifi password",
+          explanation:
+            "A wifi password is a shared credential. Whether that request is routine depends on who sent the message and whether you were expecting it. The text alone does not settle that.",
+          confidence: "medium",
+          severity: "moderate",
+          support: "direct",
+        },
+      ],
+      concernTypes: [{ type: "privacy_exposure", indicatorIds: ["i1"] }],
+      safeActions: [
+        {
+          title: "Confirm the person another way",
+          explanation:
+            "If you know who should be downstairs, check through a call or thread you already trust. Do not rely only on this message.",
+        },
+        {
+          title: "You can decline to send the password",
+          explanation:
+            "Sharing a wifi password is optional. If anything feels off, wait until you can verify the request in person or through a known channel.",
+        },
+      ],
+      limitations: sharedLimitations,
+    }),
+  },
 ] satisfies ExampleFixture[];
+
+export function getExampleFixture(id: string): ExampleFixture | undefined {
+  return exampleFixtures.find((fixture) => fixture.id === id);
+}
+
+/** Builds the AnalyzeSuccess envelope used by the demo results UI. */
+export function demoAnalyzeSuccess(fixture: ExampleFixture): AnalyzeSuccess {
+  return analyzeSuccessSchema.parse({
+    ok: true,
+    mode: "demo",
+    context: fixture.context,
+    analysis: fixture.analysis,
+  });
+}

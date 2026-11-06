@@ -47,6 +47,11 @@ export function buildReport(input: {
   if (result.mode === "rules") {
     provenance.push(rulesProvenanceText(result.fallbackReason));
   }
+  if (result.mode === "demo") {
+    provenance.push(
+      "This is a fixed practice assessment. It was not generated for a submitted message, and this demo does not call an AI service.",
+    );
+  }
 
   const evidence =
     analysis.indicators.length === 0

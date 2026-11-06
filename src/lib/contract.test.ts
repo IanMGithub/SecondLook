@@ -297,7 +297,7 @@ describe("analysis schema", () => {
 });
 
 describe("response envelopes", () => {
-  it("describes a future success without a mock mode", () => {
+  it("accepts ai, rules, and demo modes and rejects unknown modes", () => {
     const success = analyzeSuccessSchema.parse({
       ok: true,
       mode: "rules",
@@ -305,6 +305,15 @@ describe("response envelopes", () => {
       analysis: exampleFixtures[2].analysis,
     });
     assert.equal(success.mode, "rules");
+    assert.equal(
+      analyzeSuccessSchema.safeParse({
+        ok: true,
+        mode: "demo",
+        context: defaultMessageContext,
+        analysis: exampleFixtures[2].analysis,
+      }).success,
+      true,
+    );
     assert.equal(
       analyzeSuccessSchema.safeParse({
         ok: true,

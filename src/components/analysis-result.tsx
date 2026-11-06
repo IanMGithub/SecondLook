@@ -10,6 +10,7 @@ import {
 } from "@/lib/analysis";
 import {
   analysisProvenanceLabel,
+  demoProvenanceText,
   rulesProvenanceText,
 } from "@/lib/analyze-request";
 import {
@@ -55,6 +56,9 @@ export function AnalysisResult({ message, result }: AnalysisResultProps) {
           <p className="mt-2 text-sm leading-6 text-stone-700">
             {rulesProvenanceText(result.fallbackReason)}
           </p>
+        ) : null}
+        {result.mode === "demo" ? (
+          <p className="mt-2 text-sm leading-6 text-stone-700">{demoProvenanceText}</p>
         ) : null}
         <h3 className="mt-2 text-2xl font-semibold tracking-tight text-stone-950">
           {assessmentLabels[analysis.assessment]}

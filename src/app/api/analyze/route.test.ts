@@ -11,6 +11,7 @@ function postJson(
   body: unknown,
   contentType = "application/json",
   provider?: AnalysisProvider,
+  deploymentMode: "demo" | "live" = "live",
 ) {
   return handleAnalyzeRequest(
     new Request(url, {
@@ -18,7 +19,10 @@ function postJson(
       headers: { "content-type": contentType },
       body: JSON.stringify(body),
     }),
-    provider ? { provider } : {},
+    {
+      deploymentMode,
+      ...(provider ? { provider } : {}),
+    },
   );
 }
 
@@ -69,11 +73,12 @@ describe("POST /api/analyze", () => {
   });
 
   it("returns 415 when the content type is missing", async () => {
-    const response = await POST(
+    const response = await handleAnalyzeRequest(
       new Request(url, {
         method: "POST",
         body: new Uint8Array(Buffer.from(JSON.stringify({ message: secret }))),
       }),
+      { deploymentMode: "live" },
     );
     const result = await read(response);
     assert.equal(result.status, 415);
@@ -90,12 +95,13 @@ describe("POST /api/analyze", () => {
   });
 
   it("returns 415 for an unsupported content type", async () => {
-    const response = await POST(
+    const response = await handleAnalyzeRequest(
       new Request(url, {
         method: "POST",
         headers: { "content-type": "text/plain" },
         body: JSON.stringify({ message: secret }),
       }),
+      { deploymentMode: "live" },
     );
     const result = await read(response);
     assert.equal(result.status, 415);
@@ -104,12 +110,13 @@ describe("POST /api/analyze", () => {
   });
 
   it("returns 400 for malformed JSON without echoing the body", async () => {
-    const response = await POST(
+    const response = await handleAnalyzeRequest(
       new Request(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: `{"message":"${secret}"`,
       }),
+      { deploymentMode: "live" },
     );
     const result = await read(response);
     assert.equal(result.status, 400);
@@ -224,6 +231,7 @@ describe("POST /api/analyze", () => {
 
     for (const request of cases) {
       const response = await handleAnalyzeRequest(request, {
+        deploymentMode: "live",
         provider,
         apiKey: "present",
         model: "gpt-5-mini",
@@ -273,11 +281,13 @@ describe("POST /api/analyze", () => {
     assert.equal(analyzeSuccessSchema.safeParse(result.body).success, true);
   });
 
-  it("POST uses rules when the process has no OpenAI configuration", async () => {
+  it("POST uses rules when live mode has no OpenAI configuration", async () => {
     const previousKey = process.env.OPENAI_API_KEY;
     const previousModel = process.env.OPENAI_MODEL;
+    const previousMode = process.env.SECONDLOOK_DEPLOYMENT_MODE;
     delete process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_MODEL;
+    process.env.SECONDLOOK_DEPLOYMENT_MODE = "live";
     try {
       const response = await POST(
         new Request(url, {
@@ -298,6 +308,79 @@ describe("POST /api/analyze", () => {
         "not_configured",
       );
     } finally {
+      if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previousKey;
+      if (previousModel === undefined) delete process.env.OPENAI_MODEL;
+      else process.env.OPENAI_MODEL = previousModel;
+      if (previousMode === undefined) delete process.env.SECONDLOOK_DEPLOYMENT_MODE;
+      else process.env.SECONDLOOK_DEPLOYMENT_MODE = previousMode;
+    }
+  });
+
+  it("demo mode refuses analysis before any provider call", async () => {
+    let called = 0;
+    const provider: AnalysisProvider = {
+      analyze: async () => {
+        called += 1;
+        return { ok: false, reason: "provider_error" };
+      },
+    };
+    const result = await read(
+      await postJson(
+        { message: secret, mode: "live", enableAi: true },
+        "application/json",
+        provider,
+        "demo",
+      ),
+    );
+    assert.equal(result.status, 403);
+    assert.equal(result.cacheControl, "no-store");
+    assert.equal((result.body as { ok: boolean }).ok, false);
+    assert.equal(
+      (result.body as { error: { code: string } }).error.code,
+      "DEMO_ONLY",
+    );
+    assert.match(
+      (result.body as { error: { message: string } }).error.message,
+      /does not analyze submitted messages/i,
+    );
+    assert.equal(called, 0);
+    assert.equal(result.text.includes(secret), false);
+  });
+
+  it("POST defaults to demo and never reads keys when mode is unset", async () => {
+    const previousMode = process.env.SECONDLOOK_DEPLOYMENT_MODE;
+    const previousKey = process.env.OPENAI_API_KEY;
+    const previousModel = process.env.OPENAI_MODEL;
+    delete process.env.SECONDLOOK_DEPLOYMENT_MODE;
+    process.env.OPENAI_API_KEY = "sk-test-should-not-be-used";
+    process.env.OPENAI_MODEL = "gpt-5-mini";
+    try {
+      const response = await POST(
+        new Request(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-secondlook-mode": "live",
+          },
+          body: JSON.stringify({
+            message: secret,
+            deploymentMode: "live",
+            mode: "live",
+          }),
+        }),
+      );
+      const result = await read(response);
+      assert.equal(result.status, 403);
+      assert.equal(
+        (result.body as { error: { code: string } }).error.code,
+        "DEMO_ONLY",
+      );
+      assert.equal(result.text.includes("sk-test"), false);
+      assert.equal(result.text.includes(secret), false);
+    } finally {
+      if (previousMode === undefined) delete process.env.SECONDLOOK_DEPLOYMENT_MODE;
+      else process.env.SECONDLOOK_DEPLOYMENT_MODE = previousMode;
       if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
       else process.env.OPENAI_API_KEY = previousKey;
       if (previousModel === undefined) delete process.env.OPENAI_MODEL;

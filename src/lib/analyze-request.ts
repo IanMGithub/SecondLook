@@ -58,8 +58,13 @@ export function prepareSubmission(
 }
 
 export function analysisProvenanceLabel(mode: AnalyzeSuccess["mode"]): string {
-  return mode === "ai" ? "AI-assisted analysis" : "Limited rules-based analysis";
+  if (mode === "ai") return "AI-assisted analysis";
+  if (mode === "demo") return "Prewritten demo assessment";
+  return "Limited rules-based analysis";
 }
+
+export const demoProvenanceText =
+  "This is a fixed practice assessment for a selected example. It was not generated for a message you submitted, and this demo does not call an AI service.";
 
 const rulesReasonCopy: Record<FallbackReason, string> = {
   not_configured: "AI analysis is not configured.",

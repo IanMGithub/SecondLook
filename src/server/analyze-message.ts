@@ -40,6 +40,12 @@ export type AnalyzeOptions = {
   model?: string;
   timeoutMs?: number;
   diagnostics?: boolean;
+  /**
+   * When false, never construct the OpenAI provider even if key and model are set.
+   * Demo deployments set this indirectly by not calling analyzeMessage; this flag
+   * is an extra server-side guard for mistaken call sites.
+   */
+  allowLiveProvider?: boolean;
   provider?: AnalysisProvider;
   context?: MessageContext;
 };
@@ -162,6 +168,7 @@ export async function analyzeMessage(
 async function configuredProvider(
   options: AnalyzeOptions,
 ): Promise<AnalysisProvider | undefined> {
+  if (options.allowLiveProvider === false) return undefined;
   if (!nonBlank(options.apiKey) || !nonBlank(options.model)) return undefined;
   const { createOpenAIAnalyzer } = await import("./openai-analyzer");
   return createOpenAIAnalyzer({
